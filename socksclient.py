@@ -51,8 +51,9 @@ class SOCKSError(Exception):
         self.template = template
 
 class SOCKSv5ClientProtocol(Protocol):
-    postHandshakeEndpoint = None
     postHandshakeFactory = None
+    postHandshakeHost = None
+    postHandshakePort = None
     handshakeDone = None
     buf = ''
     state = 0
@@ -68,14 +69,9 @@ class SOCKSv5ClientProtocol(Protocol):
             self.transport.loseConnection()
             self.handshakeDone.errback(SOCKSError(0x00, "error_socks.xml"))
             return
-
-        host = self.postHandshakeEndpoint._host
-        port = self.postHandshakeEndpoint._port
             
         # Anonymous access allowed - let's issue connect
-        self.transport.write(struct.pack("!BBBBB", 5, 1, 0, 3, len(host)) + host + struct.pack("!H", port))
-        
-        print "antani"
+        self.transport.write(struct.pack("!BBBBB", 5, 1, 0, 3, len(self.postHandshakeHost)) + self.postHandshakeHost + struct.pack("!H", self.postHandshakePort))
 
     def socks_state_2(self, data):
         if data[:2] != "\x05\x00":
@@ -93,8 +89,6 @@ class SOCKSv5ClientProtocol(Protocol):
         self.transport.protocol = self.postHandshakeFactory.buildProtocol(self.transport.getHost())
         self.transport.protocol.transport = self.transport
         self.transport.protocol.connectionMade()
-        
-        print "ok"
 
     def connectionMade(self):
         # We implement only Anonymous access
@@ -112,8 +106,9 @@ class SOCKSv5ClientFactory(ClientFactory):
 
     def buildProtocol(self, addr):
         r = ClientFactory.buildProtocol(self, addr)
-        r.postHandshakeEndpoint = self.postHandshakeEndpoint
         r.postHandshakeFactory = self.postHandshakeFactory
+        r.postHandshakeHost = self.postHandshakeHost
+        r.postHandshakePort = self.postHandshakePort
         r.handshakeDone = self.handshakeDone
         return r
         
@@ -124,33 +119,31 @@ class SOCKSWrapper(object):
     implements(IStreamClientEndpoint)
     factory = SOCKSv5ClientFactory
 
-    def __init__(self, reactor, socksendpoint, finalendpoint):
+    def __init__(self, reactor, sockhost, sockport, host, port):
         self._reactor = reactor
-        self._socksendpoint = socksendpoint
-        self._finalendpoint = finalendpoint
+        self._sockhost = sockhost
+        self._sockport = sockport
+        self._host = host
+        self._port = port
 
     def connect(self, protocolFactory):
         """
         Return a deferred firing when the SOCKS connection is established.
         """
 
-        def _canceller(deferred):
-            connector.stopConnecting()
-            deferred.errback(
-                error.ConnectingCancelledError(connector.getDestination()))
-
         try:
             # Connect with an intermediate SOCKS factory/protocol,
             # which then hands control to the provided protocolFactory
             # once a SOCKS connection has been established.
 
-            d = defer.Deferred(_canceller)
+            d = defer.Deferred()
             f = self.factory()
-            f.postHandshakeEndpoint = self._finalendpoint
             f.postHandshakeFactory = protocolFactory
+            f.postHandshakeHost = self._host
+            f.postHandshakePort = self._port
             f.handshakeDone = d
 
-            connector = self._reactor.connectTCP(self._socksendpoint._host, self._socksendpoint._port, f)
+            connector = self._reactor.connectTCP(self._sockhost, self._sockport, f)
 
             return d
 
