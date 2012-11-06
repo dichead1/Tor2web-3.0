@@ -51,10 +51,7 @@ class SOCKSError(Exception):
         self.template = template
 
 class SOCKSv5ClientProtocol(Protocol):
-    postHandshakeFactory = None
-    postHandshakeHost = None
-    postHandshakePort = None
-    handshakeDone = None
+    factory = None
     buf = ''
     state = 0
 
@@ -71,7 +68,7 @@ class SOCKSv5ClientProtocol(Protocol):
             return
             
         # Anonymous access allowed - let's issue connect
-        self.transport.write(struct.pack("!BBBBB", 5, 1, 0, 3, len(self.postHandshakeHost)) + self.postHandshakeHost + struct.pack("!H", self.postHandshakePort))
+        self.transport.write(struct.pack("!BBBBB", 5, 1, 0, 3, len(self.factory.postHandshakeHost)) + self.factory.postHandshakeHost + struct.pack("!H", self.factory.postHandshakePort))
 
     def socks_state_2(self, data):
         if data[:2] != "\x05\x00":
@@ -86,7 +83,7 @@ class SOCKSv5ClientProtocol(Protocol):
                 
             return
 
-        self.transport.protocol = self.postHandshakeFactory.buildProtocol(self.transport.getHost())
+        self.transport.protocol = self.factory.postHandshakeFactory.buildProtocol(self.transport.getHost())
         self.transport.protocol.transport = self.transport
         self.transport.protocol.connectionMade()
 
@@ -103,13 +100,16 @@ class SOCKSv5ClientProtocol(Protocol):
 
 class SOCKSv5ClientFactory(ClientFactory):
     protocol = SOCKSv5ClientProtocol
+    
+    def __init__(self, postHandshakeFactory, postHandshakeHost, postHandshakePort, handshakeDone):
+        self.postHandshakeFactory = postHandshakeFactory
+        self.postHandshakeHost = postHandshakeHost
+        self.postHandshakePort = postHandshakePort
+        self.handshakeDone = handshakeDone
 
     def buildProtocol(self, addr):
         r = ClientFactory.buildProtocol(self, addr)
-        r.postHandshakeFactory = self.postHandshakeFactory
-        r.postHandshakeHost = self.postHandshakeHost
-        r.postHandshakePort = self.postHandshakePort
-        r.handshakeDone = self.handshakeDone
+        r.factory = self
         return r
         
     def clientConnectionFailed(self, connector, reason):
@@ -119,14 +119,12 @@ class SOCKSWrapper(object):
     implements(IStreamClientEndpoint)
     factory = SOCKSv5ClientFactory
 
-    def __init__(self, reactor, sockhost, sockport, host, port):
+    def __init__(self, reactor, sockhost, sockport):
         self._reactor = reactor
         self._sockhost = sockhost
         self._sockport = sockport
-        self._host = host
-        self._port = port
 
-    def connect(self, protocolFactory):
+    def connect(self, protocolFactory, host, port):
         """
         Return a deferred firing when the SOCKS connection is established.
         """
@@ -136,14 +134,14 @@ class SOCKSWrapper(object):
             # which then hands control to the provided protocolFactory
             # once a SOCKS connection has been established.
 
+            # deferred
             d = defer.Deferred()
-            f = self.factory()
-            f.postHandshakeFactory = protocolFactory
-            f.postHandshakeHost = self._host
-            f.postHandshakePort = self._port
-            f.handshakeDone = d
+            
+            # factory
+            f = self.factory(protocolFactory, host, port, d)
 
-            connector = self._reactor.connectTCP(self._sockhost, self._sockport, f)
+            # connector
+            c = self._reactor.connectTCP(self._sockhost, self._sockport, f)
 
             return d
 

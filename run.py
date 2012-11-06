@@ -527,12 +527,12 @@ class T2WRequest(proxy.ProxyRequest):
                     self.rest = "/"
                 
                 dest = client._parse(self.obj.address) # scheme, host, port, path
-
-                wrapper = SOCKSWrapper(reactor, config.sockshost, config.socksport, dest[1], dest[2])
+                
+                wrapper = SOCKSWrapper(reactor, config.sockshost, config.socksport)
 
                 f = self.protocols[protocol](self.method, self.rest, self.clientproto, self.obj.headers, content, self, self.obj)
 
-                d = wrapper.connect(f)
+                d = wrapper.connect(f, dest[1], dest[2])
                 d.addErrback(self.sockserror)
 
                 return NOT_DONE_YET
