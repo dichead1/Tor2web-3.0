@@ -26,10 +26,10 @@ NAME=tor2web
 SCRIPTNAME=/etc/init.d/$NAME
 DAEMON=/usr/local/bin/twistd
 DAEMON_DIR=/home/tor2web/Tor2web-3.0
-DEAMON_ENV=${DAEMON_DIR}/t2wenv/bin/activate
-DAEMON_PIDFILE=tor2web.pid
+DEAMON_ENV=/home/tor2web/t2wenv/bin/activate
+DAEMON_PIDFILE=/var/run/tor2web.pid
 DAEMON_USER=tor2web
-DAEMON_ARGS="-y /home/tor2web/Tor2web-3.0/run.py --pidfile ${DAEMON_PIDFILE} --uid ${DAEMON_USER} --gid ${DAEMON_USER}"
+DAEMON_ARGS="--pidfile ${DAEMON_PIDFILE} --uid ${DAEMON_USER} --gid ${DAEMON_USER} tor2web"
 
 # Exit if the package is not installed
 [ -x "$DAEMON" ] || exit 0
@@ -102,7 +102,7 @@ do_t2w_start()
 
     # Check to see if the daemon is already running.
     echo "Starting Tor2web..."
-    start-stop-daemon --start --quiet --pidfile ${DAEMON_DIR}/${DAEMON_PIDFILE} \
+    start-stop-daemon --start --quiet --pidfile ${DAEMON_PIDFILE} \
         --exec $DAEMON --chdir $DAEMON_DIR -- $DAEMON_ARGS
     RETVAL=$?
     if [ $RETVAL -eq 1 ]; then
@@ -142,7 +142,7 @@ do_t2w_stop()
     #   other if a failure occurred
 
     echo "Stopping Tor2web..."
-    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile ${DAEMON_DIR}/${DAEMON_PIDFILE}
+    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile ${DAEMON_PIDFILE}
     RETVAL=$?
     if [ $RETVAL -eq 1 ]; then
         echo "not running"
@@ -151,7 +151,7 @@ do_t2w_stop()
     fi
 
     # Many daemons don't delete their pidfiles when they exit.
-    rm -f ${DAEMON_DIR}/${DAEMON_PIDFILE}
+    rm -f ${DAEMON_PIDFILE}
 
     return "$RETVAL"
 }
@@ -185,9 +185,9 @@ do_status()
     #   4 if daemon status is unknown
 
     # Check to see if the daemon is already running.
-    start-stop-daemon --stop --test --quiet --pidfile ${DAEMON_DIR}/${DAEMON_PIDFILE} \
+    start-stop-daemon --stop --test --quiet --pidfile ${DAEMON_PIDFILE} \
         && echo "Tor2web running OK." && return 0
-    [ -f ${DAEMON_DIR}/${DAEMON_PIDFILE} ] && echo "Tor2web not responding, but PIDFILE exists." && return 1
+    [ -f ${DAEMON_PIDFILE} ] && echo "Tor2web not responding, but PIDFILE exists." && return 1
     echo "Tor2web is not running"
     return 3
 }

@@ -34,8 +34,8 @@
 from twisted.web.template import Element, XMLString, renderer, tags, flattenString
 from twisted.python.filepath import FilePath
 
-from utils.config import config
-from utils.fileList import fileList
+from tor2web.utils.config import config
+from tor2web.utils.fileList import fileList
 
 class PageTemplate(Element):
     def lookupRenderMethod(self, name):
