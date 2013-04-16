@@ -34,11 +34,9 @@
 import os
 import re
 import sys
-import copy
 import urlparse
 import mimetypes
 import gzip
-import json
 import zlib
 from StringIO import StringIO
 from random import choice
@@ -61,8 +59,6 @@ from twisted.python import log
 from twisted.python.logfile import DailyLogFile
 from twisted.python.failure import Failure
 
-from tor2web import Tor2web, Tor2webObj
-
 from utils.config import config
 from utils.mail import sendmail, MailException
 from utils.socks import SOCKS5ClientEndpoint, SOCKSError
@@ -72,11 +68,282 @@ from utils.templating import PageTemplate
 
 VERSION = "Tor2Web 3.0 Beta 1"
 
+rexp = {
+    'href': re.compile(r'<[a-z]*\s*.*?\s*href\s*=\s*[\\\'"]?([a-z0-9/#:\-\.]*)[\\\'"]?\s*.*?>', re.I),
+    'src': re.compile(r'<[a-z]*\s*.*?\s*src\s*=\s*[\\\'"]?([a-z0-9/#:\-\.]*)[\\\'"]?\s*.*?>', re.I),
+    'action': re.compile(r'<[a-z]*\s*.*?\s*action\s*=\s*[\\\'"]?([a-z0-9/#:\-\.]*)[\\\'"]?\s*.*?>', re.I),
+    'body': re.compile(r'(<body.*?\s*>)', re.I)
+}
+
 SOCKS_errors = {\
     0x00: "error_sock_generic.tpl",
     0x23: "error_sock_hs_not_found.tpl",
     0x24: "error_sock_hs_not_reachable.tpl"
 }
+
+class Tor2webObj():
+
+    # The destination hidden service identifier
+    onion = None
+
+    # The path portion of the URI
+    path = None
+
+    # The full address (hostname + uri) that must be requested
+    address = None
+
+    # The headers to be sent
+    headers = None
+
+    # The requested uri
+    uri = None
+
+    error = {}
+
+    client_supports_gzip = False
+
+    server_response_is_gzip = False
+
+    contentNeedFix = False
+
+class Tor2web(object):
+    def __init__(self, config):
+        """
+        Process tor2web requests, fix links, inject banner and
+        all that happens between a client request and the fetching
+        of the content from the Tor Hidden Service.
+
+        :config a config object
+        """
+        self.config = config
+
+        self.basehost = config.basehost
+
+        # construct blocklist merging local lists and upstram updates
+
+        # schedule upstream updates
+        self.blocklist = hashedBlockList(os.path.join(config.datadir, 'lists', 'blocklist_hashed.txt'))
+
+        # clear local cleartext list
+        # (load -> hash -> clear feature; for security reasons)
+        self.blocklist_cleartext = fileList(os.path.join(config.datadir, 'lists', 'blocklist_cleartext.txt'))
+        for i in self.blocklist_cleartext:
+            self.blocklist.add(hashlib.md5(i).hexdigest())
+
+        self.blocklist.dump()
+
+        self.blocklist_cleartext.clear()
+        self.blocklist_cleartext.dump()
+
+        self.blocked_ua = fileList(os.path.join(config.datadir, 'lists', 'blocked_ua.txt'))
+
+        # Load Exit Nodes list with the refresh rate configured  in config file
+        self.TorExitNodes = torExitNodeList(os.path.join(config.datadir, 'lists', 'exitnodelist.txt'),
+                                            "https://onionoo.torproject.org/summary?type=relay",
+                                            config.exit_node_list_refresh)
+
+    def verify_onion(self, obj, address):
+        """
+        Check to see if the address is a .onion.
+        returns the onion address as a string if True else returns False
+        """
+        onion, tld = address.split(".")
+        log.msg('onion: %s tld: %s' % (onion, tld))
+        if tld == 'onion' and len(onion) == 16 and onion.isalnum():
+            obj.onion = onion
+            return True
+
+        return False
+
+
+    def verify_resource_is_local(self, obj, host, uri, staticpath):
+       if isIPAddress(host):
+           obj.resourceislocal = True
+       else:
+           obj.resourceislocal = uri.startswith(staticpath)
+       return obj.resourceislocal
+
+    def verify_hostname(self, obj, host, uri):
+        """
+        Resolve the supplied request to a HS.
+        HSs are accepted in the <onion_url>.<tor2web_domain>.<tld>/ format
+        """
+        if not host:
+            obj.error = {'code': 400, 'template': 'error_invalid_hostname.tpl'}
+            return False
+
+        obj.hostname = host.split(".")[0] + ".onion"
+        log.msg("detected <onion_url>.tor2web Hostname: %s" % obj.hostname)
+
+        try:
+            if self.verify_onion(obj, obj.hostname):
+                return True
+        except:
+            pass
+
+        obj.error = {'code': 406, 'template': 'error_invalid_hostname.tpl'}
+
+        return False
+
+    def get_address(self, obj, req):
+        """
+        Returns the address of the request to be made on the Tor Network
+        to contact the Tor Hidden Service.
+
+        the return address format is: http://<some>.onion/<URI>
+        """
+        obj.uri = req.uri
+        log.msg("URI: %s" % obj.uri)
+
+        if hashlib.md5(obj.hostname).hexdigest() in self.blocklist:
+            obj.error = {'code': 403, 'template': 'error_hs_completely_blocked.tpl'}
+            return False
+
+        if hashlib.md5(obj.hostname + obj.uri).hexdigest() in self.blocklist:
+            obj.error = {'code': 403, 'template': 'error_hs_specific_page_blocked.tpl'}
+            return False
+
+        # When connecting to HS use only HTTP
+        obj.address = "http://" + obj.hostname + obj.uri
+
+        return True
+
+    def process_request(self, obj, req):
+        """
+        This function:
+            - "resolves" the address;
+            - alters and sets the proper headers.
+        """
+        log.msg(req)
+
+        if not self.get_address(obj, req):
+            return False
+
+        obj.headers = req.headers
+
+        log.msg("Headers before fix:")
+        log.msg(obj.headers)
+
+        obj.headers.removeHeader('If-Modified-Since')
+        obj.headers.removeHeader('If-None-Match')
+        obj.headers.setRawHeaders('Host', [obj.hostname])
+        obj.headers.setRawHeaders('X-tor2web', ['encrypted'])
+        obj.headers.setRawHeaders('Connection', ['keep-alive'])
+        obj.headers.setRawHeaders('Accept-Encoding', ['gzip, chunked'])
+
+        obj.host_onion = "http://" + obj.onion + ".onion"
+        obj.host_tor2web = "https://" + obj.onion + "." + self.config.basehost + ":" + str(self.config.listen_port_https)
+
+        for key, values in obj.headers.getAllRawHeaders():
+            fixed_values = []
+            for value in values:
+                fixed_values.append(value.replace(obj.host_tor2web, obj.host_onion))
+
+            obj.headers.setRawHeaders(key, fixed_values)
+
+        log.msg("Headers after fix:")
+        log.msg(obj.headers)
+
+        return True
+
+    def leaving_link(self, obj, target):
+        """
+        Returns a link pointing to a resource outside of Tor2web.
+        """
+        link = target.netloc + target.path
+        if target.query:
+            link += "?" + target.query
+
+        return "https://leaving." + self.basehost + "/" + link
+
+    def fix_link(self, obj, data):
+        """
+        Operates some links corrections.
+        """
+        parsed = urlparse(data)
+        exiting = True
+
+        scheme = parsed.scheme
+
+        if scheme == 'http':
+            scheme = 'https'
+
+        if scheme == 'data':
+            link = data
+            return link;
+
+        if scheme == '':
+            link = data
+        else:
+            if parsed.netloc == '':
+                netloc = obj.hostname
+            else:
+                netloc = parsed.netloc
+
+            if netloc == obj.onion:
+                exiting = False
+            elif netloc.endswith(".onion"):
+                netloc = netloc.replace(".onion", "")
+                exiting = False
+
+            link = scheme + "://"
+
+            if exiting:
+                # Actually not implemented: need some study.
+                # link = self.leaving_link(obj, parsed)
+                link = data
+            else:
+                link += netloc + "." + self.basehost + parsed.path
+
+            if parsed.query:
+                link += "?" + parsed.query
+
+        return link
+
+    def fix_links(self, obj, data):
+        """
+        Fix links in the result from HS
+
+        example:
+            when visiting <onion_url>.tor2web.org
+            /something -> /something
+            <onion_url>/something -> <onion_url>.tor2web.org/something
+        """
+        link = self.fix_link(obj, data.group(1))
+
+        return data.group(0).replace(data.group(1), link)
+
+    def add_banner(self, obj, banner, data):
+        """
+        Inject tor2web banner inside the returned page
+        """
+        return str(data.group(1)) + str(banner)
+
+    def process_links(self, obj, data):
+        """
+        Process all the possible HTML tag attributes that may contain links.
+        """
+        log.msg("processing URL attributes")
+
+        items = ['src', 'href', 'action']
+        for item in items:
+            data = re.sub(rexp[item], partial(self.fix_links, obj), data)
+
+        log.msg("finished processing links...")
+
+        return data
+
+    def process_html(self, obj, banner, data):
+        """
+        Process the result from the Hidden Services HTML
+        """
+        log.msg("processing HTML type content")
+
+        data = self.process_links(obj, data)
+
+        data = re.sub(rexp['body'], partial(self.add_banner, obj, banner), data)
+
+        return data
 
 class BodyReceiver(protocol.Protocol):
     def __init__(self, finished):
@@ -284,6 +551,11 @@ class T2WRequest(proxy.ProxyRequest):
         self.html = False
         self.decoderGzip = None
         self.encoderGzip = None
+
+        self.pool = HTTPConnectionPool(reactor, True,
+                                       config.sockmaxpersistentperhost,
+                                       config.sockcachedconnectiontimeout,
+                                       config.sockretryautomatically)
 
     def __setattr__(self, name, value):
         """
@@ -558,7 +830,7 @@ class T2WRequest(proxy.ProxyRequest):
             else:
                 bodyProducer = None
 
-            agent = Agent(reactor, sockhost=config.sockshost, sockport=config.socksport, pool=pool)
+            agent = Agent(reactor, sockhost=config.sockshost, sockport=config.socksport, pool=self.pool)
             d = agent.request(self.method, 'shttp://'+dest[1]+dest[3],
                     self.obj.headers, bodyProducer=bodyProducer)
 
@@ -693,42 +965,44 @@ def startTor2webHTTP(t2w, f, ip):
 
 def startTor2webHTTPS(t2w, f, ip):
     return internet.SSLServer(int(t2w.config.listen_port_https), f,
-                              T2WSSLContextFactory(t2w.config.sslkeyfile,
-                                                   t2w.config.sslcertfile,
-                                                   t2w.config.ssldhfile,
+                              T2WSSLContextFactory(os.path.join(config.datadir, t2w.config.sslkeyfile),
+                                                   os.path.join(config.datadir, t2w.config.sslcertfile),
+                                                   os.path.join(config.datadir, t2w.config.ssldhfile),
                                                    t2w.config.cipher_list),
                               interface=ip)
 
-sys.excepthook = MailException
+#sys.excepthook = MailException
 
 t2w = Tor2web(config)
 
-pool = HTTPConnectionPool(reactor, True,
-                          config.sockmaxpersistentperhost,
-                          config.sockcachedconnectiontimeout,
-                          config.sockretryautomatically)
+if not os.path.exists(config.datadir):
+    os.mkdir(config.datadir)
+
+for directory in [ 'lists', 'logs' ]:
+    if not os.path.exists(os.path.join(config.datadir, directory)):
+        os.mkdir(os.path.join(config.datadir, directory))
 
 application = service.Application("Tor2web")
 if config.debugmode:
     if config.debugtostdout is not True:
-        application.setComponent(log.ILogObserver, log.FileLogObserver(DailyLogFile.fromFullPath(config.debuglogpath)).emit)
+        application.setComponent(log.ILogObserver,
+                                 log.FileLogObserver(DailyLogFile.fromFullPath(os.path.join(config.datadir, 'logs', 'debug.log'))).emit)
 else:
     application.setComponent(log.ILogObserver, log.FileLogObserver(log.NullFile).emit)
 
-
 antanistaticmap = {}
-files = FilePath("static/").globChildren("*")
+files = FilePath(os.path.join(config.datadir,"static/")).globChildren("*")
 for file in files:
     antanistaticmap[file.basename()] = file.getContent()
 
 templates = {}
-files = FilePath("templates/").globChildren("*.tpl")
+files = FilePath(os.path.join(config.datadir, 'templates/')).globChildren("*.tpl")
 for file in files:
     templates[file.basename()] = PageTemplate(XMLString(file.getContent()))
 
 antanistaticmap['tos.html'] = templates['tos.tpl']
 
-factory = T2WProxyFactory(config.accesslogpath)
+factory = T2WProxyFactory(os.path.join(config.datadir, 'logs', 'access.log'))
 
 if config.listen_ipv6 == "::" or config.listen_ipv4 == config.listen_ipv6:
     # fix for incorrect configurations

@@ -37,7 +37,7 @@ import traceback
 from OpenSSL import SSL
 from StringIO import StringIO
 
-from utils.config import config
+from tor2web.utils.config import config
 
 from twisted.internet import reactor
 from twisted.internet.defer import Deferred

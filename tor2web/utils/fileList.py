@@ -42,7 +42,7 @@ from twisted.internet.defer import Deferred
 from twisted.web.client import HTTPPageGetter, HTTPClientFactory, _parse
 
 class HTTPCacheDownloader(HTTPPageGetter):
-  
+
     def connectionMade(self, isCached=False):
 
         self.content_is_gzip = False
@@ -106,7 +106,7 @@ class HTTPCacheDownloader(HTTPPageGetter):
 
         if key == 'content-encoding' and value == 'gzip':
             self.content_is_gzip = True
-            
+
         HTTPPageGetter.handleHeader(self, key, value)
 
     def handleResponse(self, response):
@@ -120,7 +120,7 @@ class HTTPCacheDownloader(HTTPPageGetter):
 
     def handleStatus(self, version, status, message):
         HTTPPageGetter.handleStatus(self, version, status, message)
-        
+
     def handleStatus_304(self):
         # content not modified
         pass
@@ -156,7 +156,7 @@ def getPageCached(url, contextFactory=None, *args, **kwargs):
     page (as a string) or errback with a description of the error.
 
     See HTTPClientCacheFactory to see what extra args can be passed.
-    """       
+    """
     scheme, host, port, path = _parse(url)
     factory = HTTPClientCacheFactory(url, *args, **kwargs)
     if scheme == 'https':
@@ -167,12 +167,12 @@ def getPageCached(url, contextFactory=None, *args, **kwargs):
         reactor.connectTCP(host, port, factory)
 
     return factory.deferred
-    
+
 class fileList(set):
     def __init__(self, filename):
         set.__init__(self)
         self.filename = filename
-       
+
         self.load()
 
     def load(self):
@@ -180,7 +180,7 @@ class fileList(set):
         Load the list from the specified file.
         """
         self.clear()
-        
+
         #simple touch to create non existent files
         open(self.filename, 'a').close()
 
@@ -197,7 +197,7 @@ class fileList(set):
         for l in self:
            fh.write(l + "\n")
         fh.close()
-    
+
 class updateFileList(fileList):
     def __init__(self, filename, url='', refreshPeriod=0):
         fileList.__init__(self, filename)
@@ -212,7 +212,7 @@ class updateFileList(fileList):
                 self.handleData(data)
             except:
                 d.callback(False)
-          
+
             self.dump()
 
         d.callback(True)

@@ -32,6 +32,7 @@
 # -*- coding: utf-8 -*-
 
 import re
+import os
 import ConfigParser
 from storage import Storage
 
@@ -42,7 +43,8 @@ class Config(Storage):
     A Storage-like class which loads and store each attribute into a portable
     conf file.
     """
-    def __init__(self, section, cfgfile="tor2web.conf"):
+    def __init__(self, section,
+                 cfgfile=os.path.join("/", "etc", "tor2web/", "tor2web.conf")):
         Storage.__init__(self)
 
         self._cfgfile = cfgfile
