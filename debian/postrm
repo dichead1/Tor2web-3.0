@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "[+] Sorry to hear you did not enjoy tor2web"
+echo "    send us an email to info@globaleaks.org"
+exit 0
