@@ -62,7 +62,7 @@ from twisted.python.logfile import DailyLogFile
 from twisted.python.failure import Failure
 
 from utils.config import config
-from utils.fileList import fileList, hashedBlockList, torExitNodeList
+from utils.fileList import fileList, updateFileList, hashedBlockList, torExitNodeList
 from utils.mail import sendmail, MailException
 from utils.socks import SOCKS5ClientEndpoint, SOCKSError
 from utils.ssl import T2WSSLContextFactory

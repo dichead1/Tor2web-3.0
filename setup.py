@@ -35,19 +35,23 @@ for d in data_dirs:
     walk_dir_and_callback(d, cb)
     data_files.append((os.path.join(install_directory, d), data_paths))
 
+requires = [
+    "twisted (==13.0.0)"
+]
+
 setup(
     name="tor2web",
-    version="0.2",
+    version="0.3",
     author="Random GlobaLeaks developers",
     author_email = "info@globaleaks.org",
     url="https://tor2web.org/",
-    install_requires=open('requirements.txt').readlines(),
     packages=["tor2web", "tor2web.utils", "twisted.plugins"],
     package_data={"twisted": ["plugins/tor2web_plugin.py"],
                   "tor2web": tor2web_package_data},
 
     data_files=data_files,
-    scripts=["scripts/tor2web"]
+    scripts=["scripts/tor2web"],
+    requires=requires
 )
 try:
     from twisted.plugin import IPlugin, getPlugins

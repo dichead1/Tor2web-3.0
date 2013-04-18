@@ -1,0 +1,14 @@
+Source: tor2web
+Maintainer: Random GlobaLeaks developers <info@globaleaks.org>
+Section: web
+Priority: optional
+Build-Depends: python (>= 2.7), debhelper (>= 7.4.3)
+X-Python-Version: 2.7
+Standards-Version: 3.9.1
+
+Package: globaleaks
+Architecture: all
+X-Python-Version: 2.7
+Depends: ${misc:Depends}, python (>= 2.7), build-essential, python-dev, python-pip
+Description: Tor2web is a web proxy software that let you access Tor Hidden Services from the Internet under the domain *.tor2web.org (or other you make configure) rather than by using .onion, reachable only from within Tor Darknet.
+Provides: ${python:Provides}

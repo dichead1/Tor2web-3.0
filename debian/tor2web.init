@@ -1,4 +1,4 @@
-#! /bin/sh
+#! /bin/bash
 
 ### BEGIN INIT INFO
 # startup script for Ubuntu and Debian Linux servers
@@ -18,21 +18,26 @@
 # Description:       This file starts up the tor2web server.
 ### END INIT INFO
 
-# Authors: Arturo Filasto' <art@globaleaks.org>
-#          Giovanni Pellerano <evilaliv3@globaleaks.org>
+# Authors: Arturo Filasto' <art@Tor2web.org>
+#          Giovanni Pellerano <evilaliv3@Tor2web.org>
 
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 NAME=tor2web
-SCRIPTNAME=/etc/init.d/$NAME
 DAEMON=/usr/local/bin/twistd
 DAEMON_DIR=/home/tor2web/Tor2web-3.0
-DEAMON_ENV=/home/tor2web/t2wenv/bin/activate
-DAEMON_PIDFILE=/var/run/tor2web.pid
+WORKING_DIR=/var/tor2web/
+DAEMON_PIDFILE=${WORKING_DIR}/tor2web.pid
 DAEMON_USER=tor2web
 DAEMON_ARGS="--pidfile ${DAEMON_PIDFILE} --uid ${DAEMON_USER} --gid ${DAEMON_USER} tor2web"
 
-# Exit if the package is not installed
-[ -x "$DAEMON" ] || exit 0
+NAME=$(basename $(readlink -nf $0))
+
+if [[ $EUID -ne 0 ]]; then
+   echo "Error: Tor2web init script must be run as root" 1>&2
+   exit 0
+fi
+
+SCRIPTNAME=$0
 
 # Read configuration variable file if it is present
 [ -r /etc/default/$NAME ] && . /etc/default/$NAME
@@ -71,50 +76,37 @@ else
         MAX_FILEDESCRIPTORS=8192
 fi
 
-. ${DAEMON_ENV}
-
-#
-# Function that starts the daemon/service
-#
-
 do_tor_start()
 {
-    echo "Checking Tor Status..."
-    /etc/init.d/tor status
-    RETVAL=$?
-    if [ $RETVAL -ne 0 ]; then
-        echo "Starting Tor..."
-        /etc/init.d/tor start
-        echo "started."
-    fi
+    /etc/init.d/tor start
+}
+
+do_tor_stop()
+{
+    /etc/init.d/tor stop
 }
 
 do_t2w_start()
 {
     if [ -n "$MAX_FILEDESCRIPTORS" ]; then
-        echo -n "Raising maximum number of filedescriptors (ulimit -n) to $MAX_FILEDESCRIPTORS"
-        if ulimit -n "$MAX_FILEDESCRIPTORS" ; then
-            echo "."
-        else
-            echo ": FAILED."
-        fi
+        ulimit -n "$MAX_FILEDESCRIPTORS"
     fi
 
     # Check to see if the daemon is already running.
-    echo "Starting Tor2web..."
     start-stop-daemon --start --quiet --pidfile ${DAEMON_PIDFILE} \
         --exec $DAEMON --chdir $DAEMON_DIR -- $DAEMON_ARGS
     RETVAL=$?
     if [ $RETVAL -eq 1 ]; then
-        echo "already running"
-        return 1
+        log_end_msg 0 "already running"
+        exit 0
     fi
 
     if [ $RETVAL -eq 255 ]; then
-        echo "couldn't start"
-        return 2
+        log_end_msg 1 "couldn't start"
+        exit 1
     fi
-    echo "started."
+
+    log_end_msg 0
 }
 
 do_start()
@@ -126,12 +118,6 @@ do_start()
 #
 # Function that stops the daemon/service
 #
-do_tor_stop()
-{
-    echo "Stopping Tor..."
-    /etc/init.d/tor stop
-    echo "stopped."
-}
 
 do_t2w_stop()
 {
@@ -141,19 +127,18 @@ do_t2w_stop()
     #   2 if daemon could not be stopped
     #   other if a failure occurred
 
-    echo "Stopping Tor2web..."
     start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile ${DAEMON_PIDFILE}
     RETVAL=$?
     if [ $RETVAL -eq 1 ]; then
-        echo "not running"
+        log_end_msg 0 "not running."
     else
-        echo "stopped."
+        log_end_msg 0 "stopped."
     fi
 
     # Many daemons don't delete their pidfiles when they exit.
     rm -f ${DAEMON_PIDFILE}
-
-    return "$RETVAL"
+    
+    log_end_msg 0
 }
 
 do_stop()
@@ -169,64 +154,49 @@ do_restart() {
     do_t2w_stop
     do_tor_start
     do_t2w_start
-    return 0
 }
 
 #
 # Function that queries the status of the daemon/service
 #
-do_status()
-{
-    # Return
-    #   0 if daemon is responding and OK
-    #   1 if daemon is not responding, but PIDFILE exists
-    #   2 if daemon is not responding, but LOCKFILE exists
-    #   3 if deamon is not running
-    #   4 if daemon status is unknown
-
-    # Check to see if the daemon is already running.
-    start-stop-daemon --stop --test --quiet --pidfile ${DAEMON_PIDFILE} \
-        && echo "Tor2web running OK." && return 0
-    [ -f ${DAEMON_PIDFILE} ] && echo "Tor2web not responding, but PIDFILE exists." && return 1
-    echo "Tor2web is not running"
-    return 3
-}
 
 case "$1" in
   start)
+  	log_daemon_msg "Starting Tor2web" "tor2web"
 	[ "$VERBOSE" != no ] && log_daemon_msg "Starting $DESC" "$NAME"
 	do_start
-	case "$?" in
-		0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
-		2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
-	esac
+    exit 0
 	;;
   stop)
+  	log_daemon_msg "Stopping Tor2web" "tor2web"
 	[ "$VERBOSE" != no ] && log_daemon_msg "Stopping $DESC" "$NAME"
 	do_stop
-	case "$?" in
-		0|1) [ "$VERBOSE" != no ] && log_end_msg 0 ;;
-		2) [ "$VERBOSE" != no ] && log_end_msg 1 ;;
-	esac
-	;;
+    exit 0
+    ;;
   status)
-       status_of_proc "$DAEMON" "$NAME" && exit 0 || exit $?
-       ;;
-  #reload|force-reload)
-	#
-	# If do_reload() is not implemented then leave this commented out
-	# and leave 'force-reload' as an alias for 'restart'.
-	#
-	#log_daemon_msg "Reloading $DESC" "$NAME"
-	#do_reload
-	#log_end_msg $?
-	#;;
+    if test ! -r $(dirname ${DAEMON_PIDFILE}); then
+        log_failure_msg "cannot read PID file ${DAEMON_PIDFILE}"
+        exit 4
+    fi
+    pid=`cat ${DAEMON_PIDFILE} 2>/dev/null` || true
+    if test ! -f ${DAEMON_PIDFILE} -o -z "$pid"; then
+        log_failure_msg "Tor2web is not running"
+        exit 3
+    fi
+    if ps "$pid" >/dev/null 2>&1; then
+        log_success_msg "Tor2web is running"
+        exit 0
+    else
+        log_failure_msg "Tor2web is not running"
+        exit 1
+    fi
+    ;;
   restart|force-reload)
 	#
 	# If the "reload" option is implemented then remove the
 	# 'force-reload' alias
 	#
-	log_daemon_msg "Restarting $DESC" "$NAME"
+	log_daemon_msg "Restarting Tor2web" "tor2web"
 	do_restart
 	;;
   *)

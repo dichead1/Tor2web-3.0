@@ -10,7 +10,7 @@ from twisted.python import usage
 from twisted.python import reflect
 from zope.interface import implements
 
-from tor2web.run import service_https, service_http
+from tor2web.t2w import service_https, service_http
 
 class Options(usage.Options):
     pass
