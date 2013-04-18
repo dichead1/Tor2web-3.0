@@ -21,12 +21,9 @@ def walk_dir_and_callback(dirname, cb):
 
 install_directory = os.path.join('/', 'etc', 'tor2web')
 
-# These are static files that are part of the tor2web package
-tor2web_package_data = []
-
 # These are data files that are to be customized by the user
 data_dirs = ['lists', 'templates', 'static']
-data_files = [(install_directory, ['tor2web.conf.example'])]
+data_files = []
 
 for d in data_dirs:
     data_paths = []
@@ -36,7 +33,9 @@ for d in data_dirs:
     data_files.append((os.path.join(install_directory, d), data_paths))
 
 requires = [
-    "twisted (==13.0.0)"
+"twisted (==12.3.0)",
+"zope.interface (>=4.0.0)",
+"pyOpenSSL"
 ]
 
 setup(
@@ -45,14 +44,12 @@ setup(
     author="Random GlobaLeaks developers",
     author_email = "info@globaleaks.org",
     url="https://tor2web.org/",
-    packages=["tor2web", "tor2web.utils", "twisted.plugins"],
-    package_data={"twisted": ["plugins/tor2web_plugin.py"],
-                  "tor2web": tor2web_package_data},
-
+    packages=["tor2web", "tor2web.utils"],
     data_files=data_files,
     scripts=["scripts/tor2web"],
     requires=requires
 )
+
 try:
     from twisted.plugin import IPlugin, getPlugins
     list(getPlugins(IPlugin))

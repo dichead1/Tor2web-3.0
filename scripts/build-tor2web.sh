@@ -25,11 +25,11 @@ build_Tor2web()
 {
   echo "[+] Updating Tor2web"
   cd ${TOR2WEB_DIR}/Tor2web
-  git pull origin master
+  #git pull origin master
   Tor2web_REVISION=`git rev-parse HEAD | cut -c 1-8`
 
   if test $Tor2web_TAG; then
-    git checkout $Tor2web_TAG
+    #git checkout $Tor2web_TAG
     $Tor2web_REVISION=$Tor2web_TAG
   fi
 
@@ -47,14 +47,14 @@ build_Tor2web()
   echo "[+] Building .deb"
 
   cd dist
-  py2dsc TOR2WEB-*.tar.gz
-  cd deb_dist/TOR2WEB-*
+  py2dsc tor2web-*.tar.gz
+  cd deb_dist/tor2web-*
   rm -rf debian/
   cp -rf ${TOR2WEB_DIR}/Tor2web/debian debian
   debuild
   cd ..
   echo "[+] Adding to local repository"
-  dput local TOR2WEB*changes
+  dput local tor2web*changes
   mini-dinstall --batch
   cd $CWD
 

@@ -320,7 +320,5 @@ fi
 cd /tmp/building/
 tar xzf ${PIP_PKG}
 cd pip-*
+
 python setup.py install
-
-### Bellow here things will be added by the build script
-
